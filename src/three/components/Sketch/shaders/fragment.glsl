@@ -1,3 +1,5 @@
+#include <cube_uv_reflection_fragment>
+
 varying vec2 vUv;
 varying vec3 vWolrdPosition;
 varying vec3 vWorldNormal;
@@ -8,13 +10,22 @@ uniform sampler2D roughnessMap;
 uniform sampler2D metalnessMap;
 uniform sampler2D aoMap;
 uniform sampler2D emisssiveMap;
-uniform samplerCube envMap;
+uniform sampler2D envMap;
 
 #define PI 3.14159265359
 
-#define SPECCUBE_LOD_STEPS 100
+#define SPECCUBE_LOD_STEPS 6
 
 #define saturate( a ) clamp( a, 0.0, 1.0 )
+
+float inverseLerp(float v, float minValue, float maxValue) {
+  return (v - minValue) / (maxValue - minValue);
+}
+
+float remap(float v, float inMin, float inMax, float outMin, float outMax) {
+  float t = inverseLerp(v, inMin, inMax);
+  return mix(outMin, outMax, t);
+}
 
 mat3 getTangentFrame(vec3 eye_pos, vec3 surf_norm, vec2 uv) {
 
@@ -120,6 +131,7 @@ float PerceptualRoughnessToRoughness(float perceptualRoughness) {
   return perceptualRoughness * perceptualRoughness;
 }
 
+
 void main() {
 
   mat3 tbn = getTangentFrame(vWolrdPosition, normalize(vWorldNormal), vUv);
@@ -182,11 +194,12 @@ void main() {
   diffuseIndirect = kd_indirect * albedo;
 
   vec3 R = reflect(-V, N);
-  R.x *= -1.;
 
   vec3 prefilteredColor = vec3(0.);
 
-  prefilteredColor = textureLod(envMap, R, PerceptualRoughnessToMipmapLevel(roughness)).rgb;
+  // prefilteredColor = textureLod(envMap, R, PerceptualRoughnessToMipmapLevel(roughness)).rgb;
+
+  prefilteredColor = textureCubeUV(envMap,R,sqrt(roughness)).rgb;
 
   vec2 envBRDF = DFGApprox(N,V,roughness);
 
@@ -207,6 +220,6 @@ void main() {
   #endif
 
   gl_FragColor.rgb = pow(resColor, vec3(1. / 2.2));
-  // gl_FragColor.rgb = vec3(roughness);
+  // gl_FragColor.rgb = vec3(PerceptualRoughnessToMipmapLevel(roughness));
   gl_FragColor.a = 1.;
 }
