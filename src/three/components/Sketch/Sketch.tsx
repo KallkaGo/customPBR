@@ -30,6 +30,7 @@ function Sketch() {
     cloneGroup.traverse((child) => {
       if (child instanceof Mesh) {
         const oldMat = child.material
+
         child.material = new ShaderMaterial({
           defines: {
             ENVMAP_TYPE_CUBE_UV: true,
@@ -47,6 +48,7 @@ function Sketch() {
             normalMap: new Uniform(oldMat.normalMap),
             aoMap: new Uniform(oldMat.aoMap),
             envMap: new Uniform(rt.texture),
+            intensity: new Uniform(2),
           },
           vertexShader,
           fragmentShader,

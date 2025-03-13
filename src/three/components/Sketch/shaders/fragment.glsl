@@ -11,8 +11,11 @@ uniform sampler2D metalnessMap;
 uniform sampler2D aoMap;
 uniform sampler2D emisssiveMap;
 uniform sampler2D envMap;
+uniform float intensity;
 
 #define PI 3.14159265359
+
+#define RECIPROCAL_PI 0.3183098861837907
 
 #define SPECCUBE_LOD_STEPS 6
 
@@ -100,22 +103,14 @@ float G_GeometrySmith(float NdotV, float NdotL, float roughness) {
   return ggx1 * ggx2;
 }
 
-vec2 DFGApprox( const in vec3 normal, const in vec3 viewDir, const in float roughness ) {
-
-	float dotNV = saturate( dot( normal, viewDir ) );
-
-	const vec4 c0 = vec4( - 1, - 0.0275, - 0.572, 0.022 );
-
-	const vec4 c1 = vec4( 1, 0.0425, 1.04, - 0.04 );
-
-	vec4 r = roughness * c0 + c1;
-
-	float a004 = min( r.x * r.x, exp2( - 9.28 * dotNV ) ) * r.x + r.y;
-
-	vec2 fab = vec2( - 1.04, 1.04 ) * a004 + r.zw;
-
-	return fab;
-
+vec2 EnvBRDFApprox(  float Roughness, float NoV )
+{
+    const vec4 c0 = vec4(-1., -0.0275, -0.573, 0.0229 );
+    const vec4 c1 = vec4(1., 0.0425, 1.0417, -0.0417);
+    vec4 r = Roughness * c0 + c1;
+    float a004 = min( r.x * r.x, exp2( -9.28 * NoV ) ) * r.x + r.y;
+    vec2 AB = vec2( -1.0417, 1.0417 ) * a004 + r.zw;
+    return AB;
 }
 
 float PerceptualRoughnessToMipmapLevel(float perceptualRoughness, int maxMipLevel) {
@@ -130,7 +125,6 @@ float PerceptualRoughnessToMipmapLevel(float perceptualRoughness) {
 float PerceptualRoughnessToRoughness(float perceptualRoughness) {
   return perceptualRoughness * perceptualRoughness;
 }
-
 
 void main() {
 
@@ -150,9 +144,9 @@ void main() {
   float HdotV = max(dot(H, V), 0.0);
   float LdotH = max(dot(L, H), 0.0);
 
-  float roughness = texture2D(roughnessMap, vUv).g;
+  float perceptualRoughness = texture2D(roughnessMap, vUv).g;
 
-  roughness = max(PerceptualRoughnessToRoughness(roughness), 0.002);
+  float roughness = max(PerceptualRoughnessToRoughness(perceptualRoughness), 0.002);
 
   float metalness = texture2D(metalnessMap, vUv).b;
 
@@ -165,7 +159,7 @@ void main() {
   /* Direct Light */
 
   // Diffuse BRDF
-  vec3 diffuseBRDF = DisneyDiffuse(NdotV, NdotL, LdotH, roughness, albedo) * NdotL;
+  vec3 diffuseBRDF = DisneyDiffuse(NdotV, NdotL, LdotH, perceptualRoughness, albedo) * NdotL;
 
   // Specular BRDF
   float D = D_GGX_TR(NdotH, roughness);
@@ -191,7 +185,7 @@ void main() {
   kd_indirect *= (1. - metalness);
 
   vec3 diffuseIndirect = vec3(0.);
-  diffuseIndirect = kd_indirect * albedo;
+  diffuseIndirect = kd_indirect * albedo * RECIPROCAL_PI * intensity;
 
   vec3 R = reflect(-V, N);
 
@@ -199,9 +193,9 @@ void main() {
 
   // prefilteredColor = textureLod(envMap, R, PerceptualRoughnessToMipmapLevel(roughness)).rgb;
 
-  prefilteredColor = textureCubeUV(envMap,R,sqrt(roughness)).rgb;
+  prefilteredColor = textureCubeUV(envMap, R, perceptualRoughness).rgb;
 
-  vec2 envBRDF = DFGApprox(N,V,roughness);
+  vec2 envBRDF = EnvBRDFApprox(roughness,NdotV);
 
   vec3 specularIndirect = prefilteredColor * (ks_indirect * envBRDF.x + envBRDF.y);
 
@@ -212,12 +206,6 @@ void main() {
   vec3 emissive = texture2D(emisssiveMap, vUv).rgb;
 
   resColor += emissive;
-
-  #ifdef ENVMAP_BLENDING_NONE
-
-  resColor = vec3(1.,0.,0.);
-
-  #endif
 
   gl_FragColor.rgb = pow(resColor, vec3(1. / 2.2));
   // gl_FragColor.rgb = vec3(PerceptualRoughnessToMipmapLevel(roughness));
